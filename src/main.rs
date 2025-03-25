@@ -1,26 +1,13 @@
 mod board;
 mod pgn;
+mod graphics;
 
-use board::{ChessBoard, PieceType};
+use board::ChessBoard;
 use pgn::ChessGamePlayer;
+use graphics::{Button, load_images, draw_ui};
 use ggez::{Context, GameResult, ContextBuilder, event, GameError};
-use ggez::graphics::{Color, DrawMode, DrawParam, Image, Mesh, Rect, Canvas, Text, TextFragment, Drawable};
 use ggez::event::{EventHandler, MouseButton};
 
-const BLACK_KING: &[u8] = include_bytes!("../resources/black-king.png");
-const BLACK_QUEEN: &[u8] = include_bytes!("../resources/black-queen.png");
-const BLACK_ROOK: &[u8] = include_bytes!("../resources/black-rook.png");
-const BLACK_BISHOP: &[u8] = include_bytes!("../resources/black-bishop.png");
-const BLACK_KNIGHT: &[u8] = include_bytes!("../resources/black-knight.png");
-const BLACK_PAWN: &[u8] = include_bytes!("../resources/black-pawn.png");
-const WHITE_KING: &[u8] = include_bytes!("../resources/white-king.png");
-const WHITE_QUEEN: &[u8] = include_bytes!("../resources/white-queen.png");
-const WHITE_ROOK: &[u8] = include_bytes!("../resources/white-rook.png");
-const WHITE_BISHOP: &[u8] = include_bytes!("../resources/white-bishop.png");
-const WHITE_KNIGHT: &[u8] = include_bytes!("../resources/white-knight.png");
-const WHITE_PAWN: &[u8] = include_bytes!("../resources/white-pawn.png");
-
-// Hard-coded sample PGN for testing
 const SAMPLE_PGN: &str = r#"[Event "Live Chess"]
 [Site "Chess.com"]
 [Date "2025.03.24"]
@@ -48,29 +35,9 @@ Kc5 g4 54. Kd5 h4 55. gxh4 Rh8 56. a8=Q Rxa8 57. Rxa8 g3 58. Kc5 g2 59. Ra1 Ke6
 60. Rg1 Kd7 61. Rxg2 Ke6 62. h5 Kf7 63. h6 Kf6 64. h7 Ke5 65. h8=Q+ Ke4 66. Qf8
 Kd3 67. Rf2 Ke3 68. Qf3# 1-0"#;
 
-struct Button {
-    rect: Rect,
-    text: String,
-    pressed: bool,
-}
-
-impl Button {
-    fn new(x: f32, y: f32, width: f32, height: f32, text: &str) -> Self {
-        Button {
-            rect: Rect::new(x, y, width, height),
-            text: text.to_string(),
-            pressed: false,
-        }
-    }
-
-    fn contains_point(&self, point: [f32; 2]) -> bool {
-        self.rect.contains(point)
-    }
-}
-
 struct GameState {
     board: ChessBoard,
-    images: std::collections::HashMap<String, Image>,
+    images: std::collections::HashMap<String, ggez::graphics::Image>,
     game_player: ChessGamePlayer,
     prev_button: Button,
     next_button: Button,
@@ -85,27 +52,13 @@ impl GameState {
     fn new(ctx: &mut Context) -> GameResult<GameState> {
         let grid_size = 72.0;
         let board = ChessBoard::new(grid_size);
-
-        let mut images = std::collections::HashMap::new();
-
-        images.insert("black-king".to_string(), Image::from_bytes(ctx, BLACK_KING)?);
-        images.insert("black-queen".to_string(), Image::from_bytes(ctx, BLACK_QUEEN)?);
-        images.insert("black-rook".to_string(), Image::from_bytes(ctx, BLACK_ROOK)?);
-        images.insert("black-bishop".to_string(), Image::from_bytes(ctx, BLACK_BISHOP)?);
-        images.insert("black-knight".to_string(), Image::from_bytes(ctx, BLACK_KNIGHT)?);
-        images.insert("black-pawn".to_string(), Image::from_bytes(ctx, BLACK_PAWN)?);
-        images.insert("white-king".to_string(), Image::from_bytes(ctx, WHITE_KING)?);
-        images.insert("white-queen".to_string(), Image::from_bytes(ctx, WHITE_QUEEN)?);
-        images.insert("white-rook".to_string(), Image::from_bytes(ctx, WHITE_ROOK)?);
-        images.insert("white-bishop".to_string(), Image::from_bytes(ctx, WHITE_BISHOP)?);
-        images.insert("white-knight".to_string(), Image::from_bytes(ctx, WHITE_KNIGHT)?);
-        images.insert("white-pawn".to_string(), Image::from_bytes(ctx, WHITE_PAWN)?);
+        let images = load_images(ctx)?;
 
         let prev_button = Button::new(100.0, 800.0, 80.0, 40.0, "Prev");
         let next_button = Button::new(200.0, 800.0, 80.0, 40.0, "Next");
         let reset_button = Button::new(300.0, 800.0, 80.0, 40.0, "Start");
         let end_button = Button::new(400.0, 800.0, 80.0, 40.0, "End");
-        let flip_button = Button::new(500.0, 800.0, 80.0, 40.0, "Flip");  // New flip board button
+        let flip_button = Button::new(500.0, 800.0, 80.0, 40.0, "Flip");
 
         let game_player = ChessGamePlayer::new(board.clone());
 
@@ -181,146 +134,6 @@ impl GameState {
             self.board = self.game_player.board.clone();
         }
     }
-
-    pub fn draw_board(&self, ctx: &mut Context) -> GameResult {
-        let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
-
-        let light_color = Color::from_rgba(240, 217, 181, 255);
-        let dark_color = Color::from_rgba(181, 136, 99, 255);
-
-        let start_x = 100.0;
-        let start_y = 100.0;
-        let grid_size = self.board.grid_size;
-
-        for row in 0..8 {
-            for col in 0..8 {
-                let (display_row, display_col) = if self.board_flipped {
-                    (7 - row, 7 - col)
-                } else {
-                    (row, col)
-                };
-
-                let color = if (row + col) % 2 == 0 {
-                    light_color
-                } else {
-                    dark_color
-                };
-
-                let square = Mesh::new_rectangle(
-                    ctx,
-                    DrawMode::fill(),
-                    Rect::new(
-                        start_x + (display_col as f32 * grid_size),
-                        start_y + (display_row as f32 * grid_size),
-                        grid_size,
-                        grid_size
-                    ),
-                    color,
-                )?;
-
-                canvas.draw(&square, DrawParam::default());
-
-                if self.board.grid[row][col].piece_type != PieceType::None {
-                    let piece_name = &self.board.grid[row][col].filename;
-
-                    if let Some(image) = self.images.get(piece_name) {
-                        let img_width = image.width() as f32;
-                        let img_height = image.height() as f32;
-
-                        let scale_factor = (grid_size / img_width).min(grid_size / img_height);
-
-                        let x_offset = (grid_size - (img_width * scale_factor)) / 2.0;
-                        let y_offset = (grid_size - (img_height * scale_factor)) / 2.0;
-
-                        canvas.draw(
-                            image,
-                            DrawParam::default()
-                                .dest([
-                                    start_x + (display_col as f32 * grid_size) + x_offset,
-                                    start_y + (display_row as f32 * grid_size) + y_offset
-                                ])
-                                .scale([scale_factor, scale_factor])
-                        );
-                    }
-                }
-            }
-        }
-
-        self.draw_board_labels(&mut canvas, ctx, start_x, start_y, grid_size)?;
-
-        self.draw_button(&mut canvas, ctx, &self.prev_button)?;
-        self.draw_button(&mut canvas, ctx, &self.next_button)?;
-        self.draw_button(&mut canvas, ctx, &self.reset_button)?;
-        self.draw_button(&mut canvas, ctx, &self.end_button)?;
-        self.draw_button(&mut canvas, ctx, &self.flip_button)?;
-
-        let mut info_text = Text::new(TextFragment::from(format!("Game: {}", self.game_info)));
-        canvas.draw(&info_text, DrawParam::default().dest([100.0, 720.0]));
-
-        let current_move = self.game_player.get_current_move();
-        let total_moves = self.game_player.get_total_moves();
-        let move_text = format!("Move: {}/{}", current_move, total_moves);
-
-        info_text = Text::new(TextFragment::from(move_text));
-        canvas.draw(&info_text, DrawParam::default().dest([100.0, 750.0]));
-
-        canvas.finish(ctx)?;
-        Ok(())
-    }
-
-    fn draw_board_labels(&self, canvas: &mut Canvas, ctx: &mut Context, start_x: f32, start_y: f32, grid_size: f32) -> GameResult {
-        let files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-        let ranks = ['1', '2', '3', '4', '5', '6', '7', '8'];
-        let label_color = Color::from_rgba(200, 200, 200, 255);
-
-        for i in 0..8 {
-            let file_idx = if self.board_flipped { 7 - i } else { i };
-            let file_label = Text::new(TextFragment::from(files[file_idx].to_string()).color(label_color));
-
-            let x_pos = start_x + (i as f32 * grid_size) + grid_size/2.0 - 5.0;
-            let y_pos = start_y + (8.0 * grid_size) + 10.0;
-
-            canvas.draw(&file_label, DrawParam::default().dest([x_pos, y_pos]));
-        }
-
-        for i in 0..8 {
-            let rank_idx = if self.board_flipped { i } else { 7 - i };
-            let rank_label = Text::new(TextFragment::from(ranks[rank_idx].to_string()).color(label_color));
-
-            let x_pos = start_x - 15.0;
-            let y_pos = start_y + (i as f32 * grid_size) + grid_size/2.0 - 5.0;
-
-            canvas.draw(&rank_label, DrawParam::default().dest([x_pos, y_pos]));
-        }
-
-        Ok(())
-    }
-
-    fn draw_button(&self, canvas: &mut Canvas, ctx: &mut Context, button: &Button) -> GameResult {
-        let button_color = if button.pressed {
-            Color::from_rgba(100, 100, 100, 255)
-        } else {
-            Color::from_rgba(125, 125, 125, 255)
-        };
-
-        let button_mesh = Mesh::new_rectangle(
-            ctx,
-            DrawMode::fill(),
-            button.rect,
-            button_color,
-        )?;
-
-        canvas.draw(&button_mesh, DrawParam::default());
-
-        let button_text = Text::new(TextFragment::from(button.text.clone()));
-        let text_width = button_text.dimensions(ctx).unwrap().w;
-        let text_x = button.rect.x + (button.rect.w - text_width) / 2.0;
-        let text_y = button.rect.y + 10.0;
-
-        canvas.draw(&button_text, DrawParam::default().dest([text_x, text_y]));
-
-        Ok(())
-    }
 }
 
 impl EventHandler for GameState {
@@ -329,7 +142,24 @@ impl EventHandler for GameState {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
-        Self::draw_board(self, ctx)
+        let buttons = [
+            &self.prev_button,
+            &self.next_button,
+            &self.reset_button,
+            &self.end_button,
+            &self.flip_button,
+        ];
+
+        draw_ui(
+            ctx,
+            &self.board,
+            &self.images,
+            &buttons,
+            &self.game_info,
+            self.game_player.get_current_move(),
+            self.game_player.get_total_moves(),
+            self.board_flipped
+        )
     }
 
     fn mouse_button_down_event(
