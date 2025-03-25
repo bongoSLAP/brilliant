@@ -10,7 +10,7 @@ pub(crate) enum PieceType {
 }
 
 #[derive(PartialEq, Clone)]
-enum Colour {
+pub(crate) enum Colour {
     None,
     White,
     Black,
@@ -24,7 +24,7 @@ pub struct Piece {
 }
 
 impl Piece {
-    fn new(piece_type: PieceType, colour: Colour) -> Self {
+    pub(crate) fn new(piece_type: PieceType, colour: Colour) -> Self {
         let mut filename = String::new();
 
         if piece_type != PieceType::None {
@@ -55,6 +55,7 @@ impl Piece {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ChessBoard {
     pub(crate) grid: Vec<Vec<Piece>>,
     pub(crate) grid_size: f32,
