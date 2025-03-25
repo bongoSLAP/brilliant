@@ -1,12 +1,15 @@
 mod board;
 mod pgn;
 mod graphics;
+mod engine;
+mod fen;
 
 use board::ChessBoard;
 use pgn::ChessGamePlayer;
 use graphics::{Button, load_images, draw_ui};
 use ggez::{Context, GameResult, ContextBuilder, event, GameError};
 use ggez::event::{EventHandler, MouseButton};
+use crate::fen::pgn_to_fen_at_move;
 
 const SAMPLE_PGN: &str = r#"[Event "Live Chess"]
 [Site "Chess.com"]
@@ -76,6 +79,8 @@ impl GameState {
         };
 
         state.load_pgn_string(SAMPLE_PGN);
+
+        let foo = pgn_to_fen_at_move(SAMPLE_PGN, 50).unwrap();
 
         Ok(state)
     }
