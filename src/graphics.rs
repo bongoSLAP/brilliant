@@ -1,7 +1,8 @@
 use crate::board::{ChessBoard, PieceType};
-use ggez::{Context, GameResult};
-use ggez::graphics::{Color, DrawMode, DrawParam, Image, Mesh, Rect, Canvas, Text, TextFragment, Drawable};
+use ggez::{graphics, Context, GameResult};
+use ggez::graphics::{Color, DrawMode, DrawParam, Image, Mesh, Rect, Canvas, Text, TextFragment, Drawable, MeshBuilder};
 use std::collections::HashMap;
+use ggez::mint::Point2;
 
 pub const BLACK_KING: &[u8] = include_bytes!("../resources/black-king.png");
 pub const BLACK_QUEEN: &[u8] = include_bytes!("../resources/black-queen.png");
@@ -130,6 +131,53 @@ pub fn draw_info_text(
     canvas.draw(&move_info, DrawParam::default().dest([100.0, 750.0]));
 }
 
+pub fn draw_arrow(
+    ctx: &mut Context,
+    start: Point2<f32>,
+    end: Point2<f32>,
+    color: Color,
+) -> GameResult {
+    let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
+
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let angle = dy.atan2(dx);
+
+    let shaft = Mesh::new_line(
+        ctx,
+        &[start, end],
+        30.0,
+        color
+    )?;
+
+    canvas.draw(&shaft, DrawParam::default());
+
+    let head_angle = 2.5;
+    let head_length = 30.0;
+
+    let p1 = Point2 {
+        x: end.x - head_length * (angle + head_angle).cos(),
+        y: end.y - head_length * (angle + head_angle).sin(),
+    };
+
+    let p2 = Point2 {
+        x: end.x - head_length * (angle - head_angle).cos(),
+        y: end.y - head_length * (angle - head_angle).sin(),
+    };
+
+    let head = Mesh::new_polygon(
+        ctx,
+        DrawMode::fill(),
+        &[end, p1, p2],
+        color
+    )?;
+
+    canvas.draw(&head, DrawParam::default());
+    canvas.finish(ctx)?;
+
+    Ok(())
+}
+
 pub fn draw_ui(
     ctx: &mut Context,
     board: &ChessBoard,
@@ -204,7 +252,6 @@ pub fn draw_ui(
     }
 
     draw_info_text(&mut canvas, game_info, current_move, total_moves);
-
     canvas.finish(ctx)?;
     Ok(())
 }

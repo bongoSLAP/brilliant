@@ -9,7 +9,9 @@ use pgn::ChessGamePlayer;
 use graphics::{Button, load_images, draw_ui};
 use ggez::{Context, GameResult, ContextBuilder, event, GameError};
 use ggez::event::{EventHandler, MouseButton};
+use crate::engine::StockfishEngine;
 use crate::fen::pgn_to_fen_at_move;
+use crate::graphics::draw_arrow;
 
 const SAMPLE_PGN: &str = r#"[Event "Live Chess"]
 [Site "Chess.com"]
@@ -40,6 +42,7 @@ Kd3 67. Rf2 Ke3 68. Qf3# 1-0"#;
 
 struct GameState {
     board: ChessBoard,
+    engine: StockfishEngine,
     images: std::collections::HashMap<String, ggez::graphics::Image>,
     game_player: ChessGamePlayer,
     prev_button: Button,
@@ -55,6 +58,7 @@ impl GameState {
     fn new(ctx: &mut Context) -> GameResult<GameState> {
         let grid_size = 72.0;
         let board = ChessBoard::new(grid_size);
+        let engine = StockfishEngine::new()?;
         let images = load_images(ctx)?;
 
         let prev_button = Button::new(100.0, 800.0, 80.0, 40.0, "Prev");
@@ -67,6 +71,7 @@ impl GameState {
 
         let mut state = GameState {
             board,
+            engine,
             images,
             game_player,
             prev_button,
@@ -79,9 +84,6 @@ impl GameState {
         };
 
         state.load_pgn_string(SAMPLE_PGN);
-
-        let foo = pgn_to_fen_at_move(SAMPLE_PGN, 50).unwrap();
-
         Ok(state)
     }
 
@@ -135,8 +137,16 @@ impl GameState {
     }
 
     pub fn next_move(&mut self) {
-        if self.game_player.next_move() {
+
+        if self.game_player.has_next_move() {
+            self.game_player.next_move();
             self.board = self.game_player.board.clone();
+            let current_move = self.game_player.get_current_move();
+            let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
+            println!("Getting best move for FEN: {}", fen);
+            self.engine.set_position(&fen).unwrap();
+            let best_move = self.engine.find_best_move(Some(16), None).unwrap();
+            draw_arrow();
         }
     }
 }
@@ -235,5 +245,5 @@ fn main() -> GameResult {
         .build()?;
 
     let state = GameState::new(&mut ctx)?;
-    event::run(ctx, event_loop, state)
+    event::run(ctx, event_loop, state);
 }

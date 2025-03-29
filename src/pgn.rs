@@ -55,16 +55,15 @@ impl ChessGamePlayer {
         self.board = ChessBoard::new(self.board.grid_size);
     }
 
-    pub fn next_move(&mut self) -> bool {
-        if self.current_move >= self.moves.len() {
-            return false;
-        }
+    pub fn has_next_move(&self) -> bool {
+        self.current_move < self.moves.len()
+    }
 
+    pub fn next_move(&mut self) {
         let mv = &self.moves[self.current_move].clone();
         self.position.play_unchecked(mv);
         self.apply_move_to_board(mv);
         self.current_move += 1;
-        true
     }
 
     pub fn previous_move(&mut self) -> bool {
