@@ -4,14 +4,18 @@ mod graphics;
 mod engine;
 mod fen;
 
+use std::str::FromStr;
 use board::ChessBoard;
 use pgn::ChessGamePlayer;
 use graphics::{Button, load_images, draw_ui};
 use ggez::{Context, GameResult, ContextBuilder, event, GameError};
 use ggez::event::{EventHandler, MouseButton};
+use ggez::mint::Point2;
+use shakmaty::Square;
 use crate::engine::StockfishEngine;
 use crate::fen::pgn_to_fen_at_move;
 use crate::graphics::draw_arrow;
+use crate::pgn::square_to_board_coord;
 
 const SAMPLE_PGN: &str = r#"[Event "Live Chess"]
 [Site "Chess.com"]
@@ -52,14 +56,16 @@ struct GameState {
     flip_button: Button,
     board_flipped: bool,
     game_info: String,
+    current_arrow: Option<(Point2<f32>, Point2<f32>)>,
 }
 
 impl GameState {
     fn new(ctx: &mut Context) -> GameResult<GameState> {
         let grid_size = 72.0;
         let board = ChessBoard::new(grid_size);
+        let context = ctx;
         let engine = StockfishEngine::new()?;
-        let images = load_images(ctx)?;
+        let images = load_images(context)?;
 
         let prev_button = Button::new(100.0, 800.0, 80.0, 40.0, "Prev");
         let next_button = Button::new(200.0, 800.0, 80.0, 40.0, "Next");
@@ -81,6 +87,7 @@ impl GameState {
             flip_button,
             board_flipped: false,
             game_info: "No game loaded".to_string(),
+            current_arrow: None,
         };
 
         state.load_pgn_string(SAMPLE_PGN);
@@ -142,11 +149,19 @@ impl GameState {
             self.game_player.next_move();
             self.board = self.game_player.board.clone();
             let current_move = self.game_player.get_current_move();
+
             let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
             println!("Getting best move for FEN: {}", fen);
             self.engine.set_position(&fen).unwrap();
+
             let best_move = self.engine.find_best_move(Some(16), None).unwrap();
-            draw_arrow();
+            println!("{}", best_move[0]);
+            println!("{}", best_move[1]);
+            let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
+            let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
+            let from_square = &self.board.grid[from_coords.x][from_coords.y];
+            let to_square = &self.board.grid[to_coords.x][to_coords.y];
+            self.current_arrow = Some((from_square.display_coords, to_square.display_coords));
         }
     }
 }
@@ -173,7 +188,8 @@ impl EventHandler for GameState {
             &self.game_info,
             self.game_player.get_current_move(),
             self.game_player.get_total_moves(),
-            self.board_flipped
+            self.board_flipped,
+            self.current_arrow,
         )
     }
 

@@ -131,7 +131,7 @@ impl StockfishEngine {
         self.send_command(&format!("position fen {}", position))
     }
 
-    pub fn find_best_move(&self, depth: Option<u8>, time_ms: Option<u64>) -> Result<String, std::io::Error> {
+    pub fn find_best_move(&self, depth: Option<u8>, time_ms: Option<u64>) -> Result<Vec<String>, std::io::Error> {
         let mut go_cmd = String::from("go");
 
         if let Some(d) = depth {
@@ -151,7 +151,9 @@ impl StockfishEngine {
             if line.contains("bestmove") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
-                    return Ok(parts[1].to_string());
+                    let best_move = parts[1];
+                    let (to, from) = best_move.split_at(2);
+                    return Ok(vec![to.to_string(), from.to_string()]);
                 }
             }
         }

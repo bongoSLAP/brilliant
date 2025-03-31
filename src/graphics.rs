@@ -1,5 +1,5 @@
 use crate::board::{ChessBoard, PieceType};
-use ggez::{graphics, Context, GameResult};
+use ggez::{Context, GameResult};
 use ggez::graphics::{Color, DrawMode, DrawParam, Image, Mesh, Rect, Canvas, Text, TextFragment, Drawable, MeshBuilder};
 use std::collections::HashMap;
 use ggez::mint::Point2;
@@ -61,7 +61,6 @@ pub fn load_images(ctx: &mut Context) -> GameResult<HashMap<String, Image>> {
 
 pub fn draw_board_labels(
     canvas: &mut Canvas,
-    ctx: &mut Context,
     grid_size: f32,
     board_flipped: bool
 ) -> GameResult {
@@ -126,18 +125,21 @@ pub fn draw_info_text(
     let info_text = Text::new(TextFragment::from(format!("Game: {}", game_info)));
     canvas.draw(&info_text, DrawParam::default().dest([100.0, 720.0]));
 
-    let move_text = format!("Move: {}/{}", current_move, total_moves);
+    let current_turn = (current_move + 1) / 2;
+    let total_turns = (total_moves + 1) / 2;
+
+    let move_text = format!("Turn: {}/{}", current_turn, total_turns);
     let move_info = Text::new(TextFragment::from(move_text));
     canvas.draw(&move_info, DrawParam::default().dest([100.0, 750.0]));
 }
 
 pub fn draw_arrow(
     ctx: &mut Context,
+    canvas: &mut Canvas,
     start: Point2<f32>,
     end: Point2<f32>,
-    color: Color,
 ) -> GameResult {
-    let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
+    let color = Color::from_rgba(255, 234, 74, 170);
 
     let dx = end.x - start.x;
     let dy = end.y - start.y;
@@ -173,8 +175,6 @@ pub fn draw_arrow(
     )?;
 
     canvas.draw(&head, DrawParam::default());
-    canvas.finish(ctx)?;
-
     Ok(())
 }
 
@@ -186,7 +186,9 @@ pub fn draw_ui(
     game_info: &str,
     current_move: usize,
     total_moves: usize,
-    board_flipped: bool
+    board_flipped: bool,
+    current_arrow: Option<(Point2<f32>, Point2<f32>)>,
+
 ) -> GameResult {
     let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
     let grid_size = board.grid_size;
@@ -219,8 +221,8 @@ pub fn draw_ui(
 
             canvas.draw(&square, DrawParam::default());
 
-            if board.grid[row][col].piece_type != PieceType::None {
-                let piece_name = &board.grid[row][col].filename;
+            if board.grid[row][col].piece.piece_type != PieceType::None {
+                let piece_name = &board.grid[row][col].piece.filename;
 
                 if let Some(image) = images.get(piece_name) {
                     let img_width = image.width() as f32;
@@ -245,13 +247,18 @@ pub fn draw_ui(
         }
     }
 
-    draw_board_labels(&mut canvas, ctx, grid_size, board_flipped)?;
+    draw_board_labels(&mut canvas, grid_size, board_flipped)?;
 
     for button in buttons {
         draw_button(&mut canvas, ctx, button)?;
     }
 
     draw_info_text(&mut canvas, game_info, current_move, total_moves);
+
+    if let Some((from, to)) = current_arrow {
+        draw_arrow(ctx, &mut canvas, from, to)?;
+    }
+
     canvas.finish(ctx)?;
     Ok(())
 }

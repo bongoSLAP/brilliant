@@ -1,8 +1,9 @@
 use std::io::{BufReader, Cursor};
+use ggez::mint::Point2;
 use pgn_reader::{BufferedReader, Visitor, Skip, RawHeader, SanPlus};
-use shakmaty::{Square, Chess, Position, Move};
+use shakmaty::{Chess, Position, Move, Square};
 
-use crate::board::{ChessBoard, PieceType, Piece, Colour};
+use crate::board::{ChessBoard, PieceType, Piece, Colour, BoardSquare};
 
 pub struct ChessGamePlayer {
     pub board: ChessBoard,
@@ -61,7 +62,7 @@ impl ChessGamePlayer {
 
     pub fn next_move(&mut self) {
         let mv = &self.moves[self.current_move].clone();
-        self.position.play_unchecked(mv);
+        self.position.play_unchecked(mv); //TODO: use play() instead of play_unchecked() and handle illegal moves in UI
         self.apply_move_to_board(mv);
         self.current_move += 1;
     }
@@ -111,25 +112,25 @@ impl ChessGamePlayer {
                     let rank = king.rank().char() as usize - '1' as usize;
 
                     self.move_piece(
-                        (4, rank),
-                        (6, rank)
+                        Point2 {x: rank, y: 4},
+                        Point2 {x: rank, y: 6}
                     );
 
                     self.move_piece(
-                        (7, rank),
-                        (5, rank)
+                        Point2 {x: rank, y: 7},
+                        Point2 {x: rank, y: 5}
                     );
                 } else {
                     let rank = king.rank().char() as usize - '1' as usize;
 
                     self.move_piece(
-                        (4, rank),
-                        (2, rank)
+                        Point2 {x: rank, y: 4},
+                        Point2 {x: rank, y: 2}
                     );
 
                     self.move_piece(
-                        (0, rank),
-                        (3, rank)
+                        Point2 {x: rank, y: 0},
+                        Point2 {x: rank, y: 3}
                     );
                 }
             },
@@ -151,32 +152,32 @@ impl ChessGamePlayer {
         }
     }
 
-    fn move_piece(&mut self, from: (usize, usize), to: (usize, usize)) {
-        let from_row = 7 - from.1;
-        let from_col = from.0;
+    fn move_piece(&mut self, from: Point2<usize>, to: Point2<usize>) {
+        let from_row = 7 - from.x;
+        let from_col = from.y;
 
-        let to_row = 7 - to.1;
-        let to_col = to.0;
+        let to_row = 7 - to.x;
+        let to_col = to.y;
 
         self.board.grid[to_row][to_col] = self.board.grid[from_row][from_col].clone();
-        self.board.grid[from_row][from_col] = Piece::new(PieceType::None, Colour::None);
+        self.board.grid[from_row][from_col] = BoardSquare::new(Piece::new(PieceType::None, Colour::None), self.board.grid_size, from_row, from_col)
     }
 
-    fn promote_piece(&mut self, coord: (usize, usize), piece_type: PieceType) {
-        let row = 7 - coord.1;
-        let col = coord.0;
+    fn promote_piece(&mut self, coord: Point2<usize>, piece_type: PieceType) {
+        let row = 7 - coord.x;
+        let col = coord.y;
 
         let is_white_turn = self.current_move % 2 == 0;
         let color = if is_white_turn { Colour::White } else { Colour::Black };
 
-        self.board.grid[row][col] = Piece::new(piece_type, color);
+        self.board.grid[row][col] = BoardSquare::new(Piece::new(piece_type, color), self.board.grid_size, row, col)
     }
 
     fn remove_piece(&mut self, coord: (usize, usize)) {
         let row = 7 - coord.1;
         let col = coord.0;
 
-        self.board.grid[row][col] = Piece::new(PieceType::None, Colour::None);
+        self.board.grid[row][col] = BoardSquare::new(Piece::new(PieceType::None, Colour::None), self.board.grid_size, row, col)
     }
 
     pub fn get_current_move(&self) -> usize {
@@ -192,10 +193,10 @@ impl ChessGamePlayer {
     }
 }
 
-fn square_to_board_coord(square: Square) -> (usize, usize) {
+pub fn square_to_board_coord(square: Square) -> Point2<usize> {
     let file = square.file() as usize;
     let rank = square.rank().char() as usize - '1' as usize;
-    (file, rank)
+    Point2 { x: rank, y: file}
 }
 
 struct PgnVisitor {
