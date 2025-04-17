@@ -139,42 +139,71 @@ pub fn draw_arrow(
     start: Point2<f32>,
     end: Point2<f32>,
 ) -> GameResult {
-    let color = Color::from_rgba(255, 234, 74, 170);
+    let color = Color::from_rgba(255, 234, 74, 200);
 
     let dx = end.x - start.x;
     let dy = end.y - start.y;
     let angle = dy.atan2(dx);
 
-    let shaft = Mesh::new_line(
-        ctx,
-        &[start, end],
-        30.0,
-        color
-    )?;
-
-    canvas.draw(&shaft, DrawParam::default());
-
-    let head_angle = 2.5;
+    let shaft_width = 20.0;
+    let head_width = 40.0;
     let head_length = 30.0;
 
-    let p1 = Point2 {
-        x: end.x - head_length * (angle + head_angle).cos(),
-        y: end.y - head_length * (angle + head_angle).sin(),
+    let perpendicular_angle = angle + std::f32::consts::PI / 2.0;
+    let perpendicular_dx = perpendicular_angle.cos() * shaft_width / 2.0;
+    let perpendicular_dy = perpendicular_angle.sin() * shaft_width / 2.0;
+
+    let shaft_left = Point2 {
+        x: start.x + perpendicular_dx,
+        y: start.y + perpendicular_dy,
     };
 
-    let p2 = Point2 {
-        x: end.x - head_length * (angle - head_angle).cos(),
-        y: end.y - head_length * (angle - head_angle).sin(),
+    let shaft_right = Point2 {
+        x: start.x - perpendicular_dx,
+        y: start.y - perpendicular_dy,
     };
 
-    let head = Mesh::new_polygon(
+    let shaft_end_left = Point2 {
+        x: end.x - head_length * angle.cos() + perpendicular_dx,
+        y: end.y - head_length * angle.sin() + perpendicular_dy,
+    };
+
+    let shaft_end_right = Point2 {
+        x: end.x - head_length * angle.cos() - perpendicular_dx,
+        y: end.y - head_length * angle.sin() - perpendicular_dy,
+    };
+
+    let head_perpendicular_dx = perpendicular_angle.cos() * head_width / 2.0;
+    let head_perpendicular_dy = perpendicular_angle.sin() * head_width / 2.0;
+
+    let head_base_left = Point2 {
+        x: end.x - head_length * angle.cos() + head_perpendicular_dx,
+        y: end.y - head_length * angle.sin() + head_perpendicular_dy,
+    };
+
+    let head_base_right = Point2 {
+        x: end.x - head_length * angle.cos() - head_perpendicular_dx,
+        y: end.y - head_length * angle.sin() - head_perpendicular_dy,
+    };
+
+    let arrow_points = &[
+        shaft_left,
+        shaft_end_left,
+        head_base_left,
+        end,
+        head_base_right,
+        shaft_end_right,
+        shaft_right
+    ];
+
+    let arrow = Mesh::new_polygon(
         ctx,
         DrawMode::fill(),
-        &[end, p1, p2],
+        arrow_points,
         color
     )?;
 
-    canvas.draw(&head, DrawParam::default());
+    canvas.draw(&arrow, DrawParam::default());
     Ok(())
 }
 
@@ -221,6 +250,15 @@ pub fn draw_ui(
 
             canvas.draw(&square, DrawParam::default());
 
+            let coord_text = Text::new(TextFragment::from(format!("{},{}", row, col)).color(Color::BLACK).scale(18.0));
+            canvas.draw(
+                &coord_text,
+                DrawParam::default().dest([
+                    START_X + (display_col as f32 * grid_size) + 5.0,
+                    START_Y + (display_row as f32 * grid_size) + 5.0
+                ])
+            );
+
             if board.grid[row][col].piece.piece_type != PieceType::None {
                 let piece_name = &board.grid[row][col].piece.filename;
 
@@ -256,6 +294,13 @@ pub fn draw_ui(
     draw_info_text(&mut canvas, game_info, current_move, total_moves);
 
     if let Some((from, to)) = current_arrow {
+        // Debug the arrow coordinates as well
+        let arrow_debug = Text::new(
+            TextFragment::from(format!("Arrow: ({:.1},{:.1}) to ({:.1},{:.1})",
+                                       from.x, from.y, to.x, to.y))
+        );
+        canvas.draw(&arrow_debug, DrawParam::default().dest([100.0, 780.0]));
+
         draw_arrow(ctx, &mut canvas, from, to)?;
     }
 

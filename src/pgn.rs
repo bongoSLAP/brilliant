@@ -3,7 +3,7 @@ use ggez::mint::Point2;
 use pgn_reader::{BufferedReader, Visitor, Skip, RawHeader, SanPlus};
 use shakmaty::{Chess, Position, Move, Square};
 
-use crate::board::{ChessBoard, PieceType, Piece, Colour, BoardSquare};
+use crate::board::{ChessBoard, PieceType, Piece, Colour};
 
 pub struct ChessGamePlayer {
     pub board: ChessBoard,
@@ -56,15 +56,21 @@ impl ChessGamePlayer {
         self.board = ChessBoard::new(self.board.grid_size);
     }
 
-    pub fn has_next_move(&self) -> bool {
-        self.current_move < self.moves.len()
+    fn reset_internal(&mut self) {
+        self.position = Chess::default();
+        self.board = ChessBoard::new(self.board.grid_size);
     }
 
-    pub fn next_move(&mut self) {
+    pub fn next_move(&mut self) -> bool {
+        if self.current_move >= self.moves.len() {
+            return false;
+        }
+
         let mv = &self.moves[self.current_move].clone();
         self.position.play_unchecked(mv); //TODO: use play() instead of play_unchecked() and handle illegal moves in UI
         self.apply_move_to_board(mv);
         self.current_move += 1;
+        true
     }
 
     pub fn previous_move(&mut self) -> bool {
@@ -72,16 +78,17 @@ impl ChessGamePlayer {
             return false;
         }
 
-        self.reset();
+        self.current_move -= 1;
 
-        let target = self.current_move - 1;
-        for i in 0..target {
+        self.reset_internal();
+
+        println!("Moving to move: {}", self.current_move);
+        for i in 0..self.current_move {
             let mv = &self.moves[i].clone();
             self.position.play_unchecked(mv);
             self.apply_move_to_board(mv);
         }
 
-        self.current_move = target;
         true
     }
 
@@ -90,6 +97,8 @@ impl ChessGamePlayer {
             Move::Normal { from, to, promotion, .. } => {
                 let from_coord = square_to_board_coord(*from);
                 let to_coord = square_to_board_coord(*to);
+
+                let piece_color = self.board.grid[7 - from_coord.x][from_coord.y].piece.colour.clone();
 
                 self.move_piece(from_coord, to_coord);
 
@@ -102,7 +111,7 @@ impl ChessGamePlayer {
                         _ => panic!("Invalid promotion piece"),
                     };
 
-                    self.promote_piece(to_coord, piece_type);
+                    self.promote_piece(to_coord, piece_type, piece_color);
                 }
             },
             Move::Castle { king, rook, .. } => {
@@ -159,25 +168,22 @@ impl ChessGamePlayer {
         let to_row = 7 - to.x;
         let to_col = to.y;
 
-        self.board.grid[to_row][to_col] = self.board.grid[from_row][from_col].clone();
-        self.board.grid[from_row][from_col] = BoardSquare::new(Piece::new(PieceType::None, Colour::None), self.board.grid_size, from_row, from_col)
+        self.board.grid[to_row][to_col].piece = self.board.grid[from_row][from_col].piece.clone();
+        self.board.grid[from_row][from_col].piece = Piece::new(PieceType::None, Colour::None)
     }
 
-    fn promote_piece(&mut self, coord: Point2<usize>, piece_type: PieceType) {
+    fn promote_piece(&mut self, coord: Point2<usize>, piece_type: PieceType, color: Colour) {
         let row = 7 - coord.x;
         let col = coord.y;
 
-        let is_white_turn = self.current_move % 2 == 0;
-        let color = if is_white_turn { Colour::White } else { Colour::Black };
-
-        self.board.grid[row][col] = BoardSquare::new(Piece::new(piece_type, color), self.board.grid_size, row, col)
+        self.board.grid[row][col].piece = Piece::new(piece_type, color)
     }
 
     fn remove_piece(&mut self, coord: (usize, usize)) {
         let row = 7 - coord.1;
         let col = coord.0;
 
-        self.board.grid[row][col] = BoardSquare::new(Piece::new(PieceType::None, Colour::None), self.board.grid_size, row, col)
+        self.board.grid[row][col].piece = Piece::new(PieceType::None, Colour::None)
     }
 
     pub fn get_current_move(&self) -> usize {

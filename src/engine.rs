@@ -38,9 +38,10 @@ impl StockfishEngine {
                 if let Ok(line) = line {
                     if !line.contains("info") {
                         println!("Engine output: {}", line);
-                        if let Ok(mut buffer) = reader_output_buffer.lock() {
-                            buffer.push(line);
-                        }
+                    }
+
+                    if let Ok(mut buffer) = reader_output_buffer.lock() {
+                        buffer.push(line);
                     }
                 }
 
@@ -131,7 +132,7 @@ impl StockfishEngine {
         self.send_command(&format!("position fen {}", position))
     }
 
-    pub fn find_best_move(&self, depth: Option<u8>, time_ms: Option<u64>) -> Result<Vec<String>, std::io::Error> {
+    pub fn find_best_move(&self, depth: Option<u8>, time_ms: Option<u64>) -> Option<Vec<String>> {
         let mut go_cmd = String::from("go");
 
         if let Some(d) = depth {
@@ -142,35 +143,39 @@ impl StockfishEngine {
             go_cmd.push_str(" depth 15");
         }
 
-        self.send_command(&go_cmd)?;
+        self.send_command(&go_cmd).unwrap();
 
         let timeout = time_ms.unwrap_or(30000) + 5000;
-        let output = self.wait_for_response("bestmove", timeout)?;
+        let output = self.wait_for_response("bestmove", timeout).unwrap();
 
         for line in output.iter().rev() {
             if line.contains("bestmove") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     let best_move = parts[1];
-                    let (to, from) = best_move.split_at(2);
-                    return Ok(vec![to.to_string(), from.to_string()]);
+                    if best_move.contains("(none)") {
+                        return None;
+                    }
+
+                    let from = &best_move[0..2];
+                    let to = &best_move[2..4];
+                    return Some(vec![from.to_string(), to.to_string()]);
                 }
             }
         }
 
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Best move not found in engine output",
-        ))
+        None
     }
 
     pub fn set_option(&self, name: &str, value: &str) -> Result<(), std::io::Error> {
         self.send_command(&format!("setoption name {} value {}", name, value))
     }
 
-    pub fn get_evaluation(&self, depth: u8) -> Result<f32, std::io::Error> {
+    pub fn get_evaluation_score(&self, depth: u8) -> Result<f32, std::io::Error> {
+        self.get_output();
         self.send_command(&format!("go depth {}", depth))?;
         let output = self.wait_for_response("bestmove", 30000)?;
+        let mut latest_score: Option<f32> = None;
 
         for line in output.iter() {
             if line.contains("score cp ") {
@@ -179,7 +184,7 @@ impl StockfishEngine {
                     let score_parts: Vec<&str> = parts[1].split_whitespace().collect();
                     if !score_parts.is_empty() {
                         if let Ok(score) = score_parts[0].parse::<i32>() {
-                            return Ok(score as f32 / 100.0);
+                            latest_score = Some(score as f32 / 100.0);
                         }
                     }
                 }
@@ -190,9 +195,9 @@ impl StockfishEngine {
                     if !score_parts.is_empty() {
                         if let Ok(moves) = score_parts[0].parse::<i32>() {
                             if moves > 0 {
-                                return Ok(1000.0);
+                                latest_score = Some(1000.0);
                             } else {
-                                return Ok(-1000.0);
+                                latest_score = Some(-1000.0);
                             }
                         }
                     }
@@ -200,10 +205,14 @@ impl StockfishEngine {
             }
         }
 
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Evaluation not found in engine output",
-        ))
+        if let Some(score) = latest_score {
+            Ok(score)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Evaluation not found in engine output",
+            ))
+        }
     }
 }
 

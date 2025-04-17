@@ -1,6 +1,7 @@
 use ggez::mint::Point2;
+use crate::graphics::{START_X, START_Y};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub(crate) enum PieceType {
     None,
     King,
@@ -21,7 +22,7 @@ pub(crate) enum Colour {
 #[derive(Clone)]
 pub struct Piece {
     pub(crate) piece_type: PieceType,
-    colour: Colour,
+    pub(crate) colour: Colour,
     pub(crate) filename: String,
 }
 
@@ -65,8 +66,8 @@ pub struct BoardSquare {
 
 impl BoardSquare {
     pub fn new(piece: Piece, grid_size: f32, row_index: usize, col_index: usize) -> BoardSquare {
-        let display_x = (col_index as f32) * grid_size;
-        let display_y = (row_index as f32) * grid_size;
+        let display_x = START_X + (col_index as f32) * grid_size;
+        let display_y = START_Y + (row_index as f32) * grid_size;
         let display_coords = Point2 { x: display_x, y: display_y };
 
         BoardSquare {

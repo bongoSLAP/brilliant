@@ -14,7 +14,6 @@ use ggez::mint::Point2;
 use shakmaty::Square;
 use crate::engine::StockfishEngine;
 use crate::fen::pgn_to_fen_at_move;
-use crate::graphics::draw_arrow;
 use crate::pgn::square_to_board_coord;
 
 const SAMPLE_PGN: &str = r#"[Event "Live Chess"]
@@ -96,6 +95,7 @@ impl GameState {
 
     pub fn flip_board(&mut self) {
         self.board_flipped = !self.board_flipped;
+        self.find_best_move();
     }
 
     pub fn load_pgn_string(&mut self, pgn_content: &str) {
@@ -137,31 +137,62 @@ impl GameState {
         self.board = self.game_player.board.clone();
     }
 
-    pub fn prev_move(&mut self) {
-        if self.game_player.previous_move() {
-            self.board = self.game_player.board.clone();
+    fn find_best_move(&mut self) {
+        self.board = self.game_player.board.clone();
+        let current_move = self.game_player.get_current_move();
+
+        let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
+        println!("Getting best move for FEN: {}", fen);
+        self.engine.set_position(&fen).unwrap();
+
+        let best_move_option = self.engine.find_best_move(Some(16), None);
+
+        if best_move_option.is_none() {
+            return;
         }
+
+        let best_move = best_move_option.unwrap();
+        let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
+        let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
+        self.set_arrow_coords(from_coords, to_coords)
+    }
+
+    fn set_arrow_coords(&mut self, from_coords: Point2<usize>, to_coords: Point2<usize>) {
+        let (display_from_row, display_from_col) = if self.board_flipped {
+            (from_coords.x, 7 - from_coords.y)
+        } else {
+            (7 - from_coords.x, from_coords.y)
+        };
+
+        let (display_to_row, display_to_col) = if self.board_flipped {
+            (to_coords.x, 7 - to_coords.y)
+        } else {
+            (7 - to_coords.x, to_coords.y)
+        };
+
+        let from_center = Point2 {
+            x: graphics::START_X + (display_from_col as f32 * self.board.grid_size) + (self.board.grid_size / 2.0),
+            y: graphics::START_Y + (display_from_row as f32 * self.board.grid_size) + (self.board.grid_size / 2.0)
+        };
+
+        let to_center = Point2 {
+            x: graphics::START_X + (display_to_col as f32 * self.board.grid_size) + (self.board.grid_size / 2.0),
+            y: graphics::START_Y + (display_to_row as f32 * self.board.grid_size) + (self.board.grid_size / 2.0)
+        };
+
+        self.current_arrow = Some((from_center, to_center));
     }
 
     pub fn next_move(&mut self) {
+        if self.game_player.next_move() {
+            self.find_best_move();
+            println!("eval score: {}", self.engine.get_evaluation_score(16).unwrap())
+        }
+    }
 
-        if self.game_player.has_next_move() {
-            self.game_player.next_move();
-            self.board = self.game_player.board.clone();
-            let current_move = self.game_player.get_current_move();
-
-            let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
-            println!("Getting best move for FEN: {}", fen);
-            self.engine.set_position(&fen).unwrap();
-
-            let best_move = self.engine.find_best_move(Some(16), None).unwrap();
-            println!("{}", best_move[0]);
-            println!("{}", best_move[1]);
-            let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
-            let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
-            let from_square = &self.board.grid[from_coords.x][from_coords.y];
-            let to_square = &self.board.grid[to_coords.x][to_coords.y];
-            self.current_arrow = Some((from_square.display_coords, to_square.display_coords));
+    pub fn prev_move(&mut self) {
+        if self.game_player.previous_move() {
+            self.find_best_move();
         }
     }
 }
