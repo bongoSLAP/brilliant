@@ -1,6 +1,6 @@
 use crate::board::{ChessBoard, PieceType};
 use ggez::{Context, GameResult};
-use ggez::graphics::{Color, DrawMode, DrawParam, Image, Mesh, Rect, Canvas, Text, TextFragment, Drawable, MeshBuilder};
+use ggez::graphics::{Color, DrawMode, DrawParam, Image, Mesh, Rect, Canvas, Text, TextFragment, Drawable};
 use std::collections::HashMap;
 use ggez::mint::Point2;
 
@@ -250,6 +250,7 @@ pub fn draw_ui(
 
             canvas.draw(&square, DrawParam::default());
 
+            /*
             let coord_text = Text::new(TextFragment::from(format!("{},{}", row, col)).color(Color::BLACK).scale(18.0));
             canvas.draw(
                 &coord_text,
@@ -258,6 +259,7 @@ pub fn draw_ui(
                     START_Y + (display_row as f32 * grid_size) + 5.0
                 ])
             );
+             */
 
             if board.grid[row][col].piece.piece_type != PieceType::None {
                 let piece_name = &board.grid[row][col].piece.filename;
@@ -294,7 +296,6 @@ pub fn draw_ui(
     draw_info_text(&mut canvas, game_info, current_move, total_moves);
 
     if let Some((from, to)) = current_arrow {
-        // Debug the arrow coordinates as well
         let arrow_debug = Text::new(
             TextFragment::from(format!("Arrow: ({:.1},{:.1}) to ({:.1},{:.1})",
                                        from.x, from.y, to.x, to.y))

@@ -5,6 +5,8 @@ mod engine;
 mod fen;
 
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
 use board::ChessBoard;
 use pgn::ChessGamePlayer;
 use graphics::{Button, load_images, draw_ui};
@@ -56,6 +58,7 @@ struct GameState {
     board_flipped: bool,
     game_info: String,
     current_arrow: Option<(Point2<f32>, Point2<f32>)>,
+    best_move_receiver: Option<mpsc::Receiver<Option<Vec<String>>>>,
 }
 
 impl GameState {
@@ -63,7 +66,7 @@ impl GameState {
         let grid_size = 72.0;
         let board = ChessBoard::new(grid_size);
         let context = ctx;
-        let engine = StockfishEngine::new()?;
+        let engine = StockfishEngine::new();
         let images = load_images(context)?;
 
         let prev_button = Button::new(100.0, 800.0, 80.0, 40.0, "Prev");
@@ -87,6 +90,7 @@ impl GameState {
             board_flipped: false,
             game_info: "No game loaded".to_string(),
             current_arrow: None,
+            best_move_receiver: None,
         };
 
         state.load_pgn_string(SAMPLE_PGN);
@@ -95,7 +99,7 @@ impl GameState {
 
     pub fn flip_board(&mut self) {
         self.board_flipped = !self.board_flipped;
-        self.find_best_move();
+        self.trigger_find_best_move();
     }
 
     pub fn load_pgn_string(&mut self, pgn_content: &str) {
@@ -137,24 +141,29 @@ impl GameState {
         self.board = self.game_player.board.clone();
     }
 
-    fn find_best_move(&mut self) {
-        self.board = self.game_player.board.clone();
+    fn trigger_find_best_move(&mut self) {
         let current_move = self.game_player.get_current_move();
+        let engine_clone = self.engine.clone();
 
-        let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
-        println!("Getting best move for FEN: {}", fen);
-        self.engine.set_position(&fen).unwrap();
+        let (tx, rx) = mpsc::channel();
+        self.best_move_receiver = Some(rx);
 
-        let best_move_option = self.engine.find_best_move(Some(16), None);
+        thread::spawn(move || {
+            let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
+            println!("Getting best move for FEN: {}", fen);
 
-        if best_move_option.is_none() {
-            return;
-        }
+            {
+                let engine = engine_clone.lock();
+                engine.set_position(&fen).unwrap();
+            }
 
-        let best_move = best_move_option.unwrap();
-        let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
-        let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
-        self.set_arrow_coords(from_coords, to_coords)
+            let best_move_option = {
+                let engine = engine_clone.lock();
+                engine.find_best_move(Some(16), None)
+            };
+
+            tx.send(best_move_option).unwrap();
+        });
     }
 
     fn set_arrow_coords(&mut self, from_coords: Point2<usize>, to_coords: Point2<usize>) {
@@ -185,20 +194,44 @@ impl GameState {
 
     pub fn next_move(&mut self) {
         if self.game_player.next_move() {
-            self.find_best_move();
-            println!("eval score: {}", self.engine.get_evaluation_score(16).unwrap())
+            self.board = self.game_player.board.clone();
+
+            {
+                let engine = self.engine.lock();
+                println!("eval score: {}", engine.get_evaluation_score(16).unwrap());
+            }
+
+            self.trigger_find_best_move();
         }
     }
 
     pub fn prev_move(&mut self) {
         if self.game_player.previous_move() {
-            self.find_best_move();
-        }
+            self.board = self.game_player.board.clone();
+
+            {
+                let engine = self.engine.lock();
+                println!("eval score: {}", engine.get_evaluation_score(16).unwrap());
+            }
+
+            self.trigger_find_best_move();        }
     }
 }
 
 impl EventHandler for GameState {
     fn update(&mut self, _: &mut Context) -> GameResult {
+        if let Some(ref receiver) = self.best_move_receiver {
+            if let Ok(best_move_option) = receiver.try_recv() {
+                if let Some(best_move) = best_move_option {
+                    let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
+                    let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
+                    self.set_arrow_coords(from_coords, to_coords);
+                }
+
+                self.best_move_receiver = None;
+            }
+        }
+
         Ok(())
     }
 

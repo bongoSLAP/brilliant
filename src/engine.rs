@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Error, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -8,7 +8,7 @@ const STOCKFISH_PATH: &str = "engines/stockfish-windows-x86-64-avx2";
 const ENGINE_THREADS: &str = "4";
 const ENGINE_HASH: &str = "128";
 
-pub struct StockfishEngine {
+pub struct StockfishEngineInternal {
     process: Child,
     writer: Arc<Mutex<std::process::ChildStdin>>,
     reader_thread: Option<thread::JoinHandle<()>>,
@@ -16,7 +16,7 @@ pub struct StockfishEngine {
     running: Arc<Mutex<bool>>,
 }
 
-impl StockfishEngine {
+impl StockfishEngineInternal {
     pub fn new() -> Result<Self, std::io::Error> {
         let mut process = Command::new(STOCKFISH_PATH)
             .stdin(Stdio::piped())
@@ -53,7 +53,7 @@ impl StockfishEngine {
             }
         });
 
-        let engine = StockfishEngine {
+        let engine = StockfishEngineInternal {
             process,
             writer,
             reader_thread: Some(reader_thread),
@@ -74,7 +74,6 @@ impl StockfishEngine {
         engine.send_command("position startpos")?;
         engine.send_command("isready")?;
         engine.wait_for_response("readyok", 5000)?;
-
 
         Ok(engine)
     }
@@ -208,7 +207,7 @@ impl StockfishEngine {
         if let Some(score) = latest_score {
             Ok(score)
         } else {
-            Err(std::io::Error::new(
+            Err(Error::new(
                 std::io::ErrorKind::NotFound,
                 "Evaluation not found in engine output",
             ))
@@ -216,7 +215,7 @@ impl StockfishEngine {
     }
 }
 
-impl Drop for StockfishEngine {
+impl Drop for StockfishEngineInternal {
     fn drop(&mut self) {
         if let Ok(mut is_running) = self.running.lock() {
             *is_running = false;
@@ -229,5 +228,23 @@ impl Drop for StockfishEngine {
         }
 
         let _ = self.process.kill();
+    }
+}
+
+#[derive(Clone)]
+pub struct StockfishEngine {
+    pub(crate) internal: Arc<Mutex<StockfishEngineInternal>>,
+}
+
+impl StockfishEngine {
+    pub fn new() -> Self {
+        let engine_internal = StockfishEngineInternal::new().unwrap();
+        let arc_mutex_internal = Arc::new(Mutex::new(engine_internal));
+
+        Self { internal: arc_mutex_internal }
+    }
+
+    pub fn lock(&self) -> std::sync::MutexGuard<StockfishEngineInternal> {
+        self.internal.lock().unwrap()
     }
 }
