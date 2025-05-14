@@ -46,7 +46,6 @@ Kc5 g4 54. Kd5 h4 55. gxh4 Rh8 56. a8=Q Rxa8 57. Rxa8 g3 58. Kc5 g2 59. Ra1 Ke6
 Kd3 67. Rf2 Ke3 68. Qf3# 1-0"#;
 
 struct GameState {
-    board: ChessBoard,
     engine: StockfishEngine,
     images: std::collections::HashMap<String, ggez::graphics::Image>,
     game_player: ChessGamePlayer,
@@ -78,7 +77,6 @@ impl GameState {
         let game_player = ChessGamePlayer::new(board.clone());
 
         let mut state = GameState {
-            board,
             engine,
             images,
             game_player,
@@ -127,7 +125,6 @@ impl GameState {
 
     pub fn reset_position(&mut self) {
         self.game_player.reset();
-        self.board = self.game_player.board.clone();
     }
 
     pub fn go_to_end(&mut self) {
@@ -137,8 +134,6 @@ impl GameState {
         for _ in 0..total_moves {
             self.game_player.next_move();
         }
-
-        self.board = self.game_player.board.clone();
     }
 
     fn trigger_find_best_move(&mut self) {
@@ -179,14 +174,16 @@ impl GameState {
             (7 - to_coords.x, to_coords.y)
         };
 
+        let grid_size = self.game_player.board.grid_size;
+        
         let from_center = Point2 {
-            x: graphics::START_X + (display_from_col as f32 * self.board.grid_size) + (self.board.grid_size / 2.0),
-            y: graphics::START_Y + (display_from_row as f32 * self.board.grid_size) + (self.board.grid_size / 2.0)
+            x: graphics::START_X + (display_from_col as f32 * grid_size) + (grid_size / 2.0),
+            y: graphics::START_Y + (display_from_row as f32 * grid_size) + (grid_size / 2.0)
         };
 
         let to_center = Point2 {
-            x: graphics::START_X + (display_to_col as f32 * self.board.grid_size) + (self.board.grid_size / 2.0),
-            y: graphics::START_Y + (display_to_row as f32 * self.board.grid_size) + (self.board.grid_size / 2.0)
+            x: graphics::START_X + (display_to_col as f32 * grid_size) + (grid_size / 2.0),
+            y: graphics::START_Y + (display_to_row as f32 * grid_size) + (grid_size / 2.0)
         };
 
         self.current_arrow = Some((from_center, to_center));
@@ -194,8 +191,6 @@ impl GameState {
 
     pub fn next_move(&mut self) {
         if self.game_player.next_move() {
-            self.board = self.game_player.board.clone();
-
             {
                 let engine = self.engine.lock();
                 println!("eval score: {}", engine.get_evaluation_score(16).unwrap());
@@ -207,8 +202,6 @@ impl GameState {
 
     pub fn prev_move(&mut self) {
         if self.game_player.previous_move() {
-            self.board = self.game_player.board.clone();
-
             {
                 let engine = self.engine.lock();
                 println!("eval score: {}", engine.get_evaluation_score(16).unwrap());
@@ -246,7 +239,7 @@ impl EventHandler for GameState {
 
         draw_ui(
             ctx,
-            &self.board,
+            &self.game_player.board,
             &self.images,
             &buttons,
             &self.game_info,
