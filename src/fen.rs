@@ -5,8 +5,8 @@ use shakmaty::fen::Fen;
 pub(crate) struct FenVisitor {
     pos: Chess,
     final_fen: Option<String>,
-    move_count: usize,
-    target_move: Option<usize>,
+    move_count: i32,
+    target_move: Option<i32>,
 }
 
 impl FenVisitor {
@@ -14,7 +14,7 @@ impl FenVisitor {
         FenVisitor {
             pos: Chess::default(),
             final_fen: None,
-            move_count: 0,
+            move_count: -1,
             target_move: None,
         }
     }
@@ -72,6 +72,7 @@ impl Visitor for FenVisitor {
 
 pub fn pgn_to_fen_at_move(pgn: &str, move_number: usize) -> Option<String> {
     let mut reader = BufferedReader::new_cursor(pgn.as_bytes());
+    println!("move number: {}", move_number);
     let mut visitor = FenVisitor::with_target_move(move_number);
 
     if reader.read_game(&mut visitor).is_ok() {

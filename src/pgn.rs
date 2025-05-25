@@ -9,7 +9,7 @@ pub struct ChessGamePlayer {
     pub board: ChessBoard,
     moves: Vec<Move>,
     position: Chess,
-    current_move: usize,
+    pub(crate) current_move: usize,
     headers: Vec<(String, String)>,
 }
 

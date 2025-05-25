@@ -58,14 +58,18 @@ struct GameState {
     game_info: String,
     current_arrow: Option<(Point2<f32>, Point2<f32>)>,
     best_move_receiver: Option<mpsc::Receiver<Option<Vec<String>>>>,
+    finding_best_move: bool,
+    evaluation: f32,
+    debug_mode: bool,
 }
 
 impl GameState {
     fn new(ctx: &mut Context) -> GameResult<GameState> {
+        let debug_mode = false;
         let grid_size = 72.0;
         let board = ChessBoard::new(grid_size);
         let context = ctx;
-        let engine = StockfishEngine::new();
+        let engine = StockfishEngine::new(debug_mode);
         let images = load_images(context)?;
 
         let prev_button = Button::new(100.0, 800.0, 80.0, 40.0, "Prev");
@@ -89,6 +93,9 @@ impl GameState {
             game_info: "No game loaded".to_string(),
             current_arrow: None,
             best_move_receiver: None,
+            finding_best_move: false,
+            evaluation: 0.0,
+            debug_mode,
         };
 
         state.load_pgn_string(SAMPLE_PGN);
@@ -143,10 +150,10 @@ impl GameState {
         let (tx, rx) = mpsc::channel();
         self.best_move_receiver = Some(rx);
 
+        let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
+        println!("Getting best move for FEN: {}", fen);
+        
         thread::spawn(move || {
-            let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
-            println!("Getting best move for FEN: {}", fen);
-
             {
                 let engine = engine_clone.lock();
                 engine.set_position(&fen).unwrap();
@@ -190,24 +197,43 @@ impl GameState {
     }
 
     pub fn next_move(&mut self) {
+        if self.finding_best_move {
+            return;
+        }
+
         if self.game_player.next_move() {
             {
                 let engine = self.engine.lock();
-                println!("eval score: {}", engine.get_evaluation_score(16).unwrap());
+                let fen = pgn_to_fen_at_move(SAMPLE_PGN, self.game_player.current_move).unwrap();
+                let is_white_move = fen.split_whitespace().nth(1).unwrap_or("b") == "w";
+                let evaluation = engine.get_evaluation_score(17, is_white_move).unwrap();
+                self.evaluation = evaluation;
+                println!("eval score: {evaluation}");
             }
 
+            self.finding_best_move = true;
             self.trigger_find_best_move();
         }
     }
 
     pub fn prev_move(&mut self) {
+        if self.finding_best_move {
+            return;
+        }
+
         if self.game_player.previous_move() {
             {
                 let engine = self.engine.lock();
-                println!("eval score: {}", engine.get_evaluation_score(16).unwrap());
+                let fen = pgn_to_fen_at_move(SAMPLE_PGN, self.game_player.current_move).unwrap();
+                let is_white_move = fen.split_whitespace().nth(1).unwrap_or("b") == "w";
+                let evaluation = engine.get_evaluation_score(17, is_white_move).unwrap();
+                self.evaluation = evaluation;
+                println!("eval score: {evaluation}");
             }
 
-            self.trigger_find_best_move();        }
+            self.finding_best_move = true;
+            self.trigger_find_best_move();
+        }
     }
 }
 
@@ -222,8 +248,11 @@ impl EventHandler for GameState {
                 }
 
                 self.best_move_receiver = None;
+                self.finding_best_move = false;
             }
         }
+
+
 
         Ok(())
     }
@@ -247,6 +276,8 @@ impl EventHandler for GameState {
             self.game_player.get_total_moves(),
             self.board_flipped,
             self.current_arrow,
+            self.debug_mode,
+            self.evaluation,
         )
     }
 

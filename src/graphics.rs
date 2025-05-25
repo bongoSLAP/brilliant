@@ -66,23 +66,26 @@ pub fn draw_board_labels(
 ) -> GameResult {
     let files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
     let ranks = ['1', '2', '3', '4', '5', '6', '7', '8'];
+    let color = Color::from_rgba(0, 0, 0, 255);
 
     for i in 0..8 {
         let file_idx = if board_flipped { 7 - i } else { i };
-        let file_label = Text::new(TextFragment::from(files[file_idx].to_string()).color(Color::from_rgba(200, 200, 200, 255)));
+        let file_label = Text::new(TextFragment::from(files[file_idx].to_string())
+            .color(color));
 
-        let x_pos = START_X + (i as f32 * grid_size) + grid_size/2.0 - 5.0;
-        let y_pos = START_Y + (8.0 * grid_size) + 10.0;
+        let x_pos = START_X + (i as f32 * grid_size) + grid_size - 10.0;
+        let y_pos = START_Y + (8.0 * grid_size) - 15.0;
 
         canvas.draw(&file_label, DrawParam::default().dest([x_pos, y_pos]));
     }
 
     for i in 0..8 {
         let rank_idx = if board_flipped { i } else { 7 - i };
-        let rank_label = Text::new(TextFragment::from(ranks[rank_idx].to_string()).color(Color::from_rgba(200, 200, 200, 255)));
+        let rank_label = Text::new(TextFragment::from(ranks[rank_idx].to_string())
+            .color(color));
 
-        let x_pos = START_X - 15.0;
-        let y_pos = START_Y + (i as f32 * grid_size) + grid_size/2.0 - 5.0;
+        let x_pos = START_X;
+        let y_pos = START_Y + (i as f32 * grid_size);
 
         canvas.draw(&rank_label, DrawParam::default().dest([x_pos, y_pos]));
     }
@@ -207,6 +210,50 @@ pub fn draw_arrow(
     Ok(())
 }
 
+pub fn draw_evaluation_bar(ctx: &mut Context, canvas: &mut Canvas, evaluation: f32) -> GameResult {
+    let clamped_eval = evaluation.max(-1.0).min(1.0);
+
+    let bar_x = 10.0;
+    let bar_width = 20.0;
+    let bar_height = 200.0;
+    let bar_y = 300.0;
+    let division_point = bar_y + bar_height * (1.0 - (clamped_eval + 1.0) / 2.0);
+
+    if clamped_eval > -1.0 {
+        let white_height = bar_height * (clamped_eval + 1.0) / 2.0;
+        let white_evaluation = Mesh::new_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(
+                bar_x,
+                division_point,
+                bar_width,
+                white_height
+            ),
+            Color::from_rgba(255, 255, 255, 255),
+        )?;
+        canvas.draw(&white_evaluation, DrawParam::default());
+    }
+
+    if clamped_eval < 1.0 {
+        let black_height = bar_height * (1.0 - clamped_eval) / 2.0;
+        let black_evaluation = Mesh::new_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(
+                bar_x,
+                bar_y,
+                bar_width,
+                black_height
+            ),
+            Color::from_rgba(64, 61, 57, 255),
+        )?;
+        canvas.draw(&black_evaluation, DrawParam::default());
+    }
+
+    Ok(())
+}
+
 pub fn draw_ui(
     ctx: &mut Context,
     board: &ChessBoard,
@@ -217,6 +264,8 @@ pub fn draw_ui(
     total_moves: usize,
     board_flipped: bool,
     current_arrow: Option<(Point2<f32>, Point2<f32>)>,
+    debug_mode: bool,
+    evaluation: f32,
 
 ) -> GameResult {
     let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
@@ -250,17 +299,6 @@ pub fn draw_ui(
 
             canvas.draw(&square, DrawParam::default());
 
-            /*
-            let coord_text = Text::new(TextFragment::from(format!("{},{}", row, col)).color(Color::BLACK).scale(18.0));
-            canvas.draw(
-                &coord_text,
-                DrawParam::default().dest([
-                    START_X + (display_col as f32 * grid_size) + 5.0,
-                    START_Y + (display_row as f32 * grid_size) + 5.0
-                ])
-            );
-             */
-
             if board.grid[row][col].piece.piece_type != PieceType::None {
                 let piece_name = &board.grid[row][col].piece.filename;
 
@@ -284,10 +322,23 @@ pub fn draw_ui(
                     );
                 }
             }
+
+            if debug_mode {
+                let coord_text = Text::new(TextFragment::from(format!("{},{}", row, col)).color(Color::BLACK).scale(18.0));
+                canvas.draw(
+                    &coord_text,
+                    DrawParam::default().dest([
+                        START_X + (display_col as f32 * grid_size) + 5.0,
+                        START_Y + (display_row as f32 * grid_size) + 5.0
+                    ])
+                );
+            }
         }
     }
 
-    draw_board_labels(&mut canvas, grid_size, board_flipped)?;
+    if !debug_mode {
+        draw_board_labels(&mut canvas, grid_size, board_flipped)?;
+    }
 
     for button in buttons {
         draw_button(&mut canvas, ctx, button)?;
@@ -296,15 +347,20 @@ pub fn draw_ui(
     draw_info_text(&mut canvas, game_info, current_move, total_moves);
 
     if let Some((from, to)) = current_arrow {
-        let arrow_debug = Text::new(
-            TextFragment::from(format!("Arrow: ({:.1},{:.1}) to ({:.1},{:.1})",
-                                       from.x, from.y, to.x, to.y))
-        );
-        canvas.draw(&arrow_debug, DrawParam::default().dest([100.0, 780.0]));
+
+        if debug_mode {
+            let arrow_debug = Text::new(
+                TextFragment::from(format!("Arrow: ({:.1},{:.1}) to ({:.1},{:.1})",
+                                           from.x, from.y, to.x, to.y))
+            );
+            canvas.draw(&arrow_debug, DrawParam::default().dest([100.0, 780.0]));
+        }
 
         draw_arrow(ctx, &mut canvas, from, to)?;
     }
 
+    draw_evaluation_bar(ctx, &mut canvas, evaluation)?;
+    
     canvas.finish(ctx)?;
     Ok(())
 }

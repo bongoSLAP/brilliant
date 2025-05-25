@@ -17,7 +17,7 @@ pub struct StockfishEngineInternal {
 }
 
 impl StockfishEngineInternal {
-    pub fn new() -> Result<Self, std::io::Error> {
+    pub fn new(debug_mode: bool) -> Result<Self, std::io::Error> {
         let mut process = Command::new(STOCKFISH_PATH)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -36,7 +36,7 @@ impl StockfishEngineInternal {
             let buf_reader = BufReader::new(stdout);
             for line in buf_reader.lines() {
                 if let Ok(line) = line {
-                    if !line.contains("info") {
+                    if !line.contains("info") || debug_mode {
                         println!("Engine output: {}", line);
                     }
 
@@ -108,7 +108,6 @@ impl StockfishEngineInternal {
             if let Ok(buffer) = self.output_buffer.lock() {
                 for line in buffer.iter() {
                     if line.contains(response) {
-                        println!("Found response: {}", line);
                         found = true;
                         break;
                     }
@@ -170,7 +169,7 @@ impl StockfishEngineInternal {
         self.send_command(&format!("setoption name {} value {}", name, value))
     }
 
-    pub fn get_evaluation_score(&self, depth: u8) -> Result<f32, std::io::Error> {
+    pub fn get_evaluation_score(&self, depth: u8, is_white_move: bool) -> Result<f32, std::io::Error> {
         self.get_output();
         self.send_command(&format!("go depth {}", depth))?;
         let output = self.wait_for_response("bestmove", 30000)?;
@@ -183,7 +182,7 @@ impl StockfishEngineInternal {
                     let score_parts: Vec<&str> = parts[1].split_whitespace().collect();
                     if !score_parts.is_empty() {
                         if let Ok(score) = score_parts[0].parse::<i32>() {
-                            latest_score = Some(score as f32 / 100.0);
+                            latest_score = Some(score as f32);
                         }
                     }
                 }
@@ -205,6 +204,11 @@ impl StockfishEngineInternal {
         }
 
         if let Some(score) = latest_score {
+            if !is_white_move {
+                println!("black move");
+                return Ok(-score)
+            }
+            println!("white move");
             Ok(score)
         } else {
             Err(Error::new(
@@ -237,8 +241,8 @@ pub struct StockfishEngine {
 }
 
 impl StockfishEngine {
-    pub fn new() -> Self {
-        let engine_internal = StockfishEngineInternal::new().unwrap();
+    pub fn new(debug_mode: bool) -> Self {
+        let engine_internal = StockfishEngineInternal::new(debug_mode).unwrap();
         let arc_mutex_internal = Arc::new(Mutex::new(engine_internal));
 
         Self { internal: arc_mutex_internal }
