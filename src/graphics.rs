@@ -209,35 +209,25 @@ pub fn draw_arrow(
     canvas.draw(&arrow, DrawParam::default());
     Ok(())
 }
-
 pub fn draw_evaluation_bar(ctx: &mut Context, canvas: &mut Canvas, evaluation: f32) -> GameResult {
-    let clamped_eval = evaluation.max(-1.0).min(1.0);
+    let eval_in_pawns = evaluation / 100.0;
+    let clamped_eval = eval_in_pawns.max(-10.0).min(10.0);
+
+    let normalized_eval = clamped_eval / 10.0;
 
     let bar_x = 10.0;
-    let bar_width = 20.0;
-    let bar_height = 200.0;
-    let bar_y = 300.0;
-    let division_point = bar_y + bar_height * (1.0 - (clamped_eval + 1.0) / 2.0);
+    let bar_width = 30.0;
+    let bar_height = 400.0;
+    let bar_y = 200.0;
 
-    if clamped_eval > -1.0 {
-        let white_height = bar_height * (clamped_eval + 1.0) / 2.0;
-        let white_evaluation = Mesh::new_rectangle(
-            ctx,
-            DrawMode::fill(),
-            Rect::new(
-                bar_x,
-                division_point,
-                bar_width,
-                white_height
-            ),
-            Color::from_rgba(255, 255, 255, 255),
-        )?;
-        canvas.draw(&white_evaluation, DrawParam::default());
-    }
+    let middle_y = bar_y + bar_height / 2.0;
 
-    if clamped_eval < 1.0 {
-        let black_height = bar_height * (1.0 - clamped_eval) / 2.0;
-        let black_evaluation = Mesh::new_rectangle(
+    let white_portion = (normalized_eval + 1.0) / 2.0;
+    let white_height = bar_height * white_portion;
+    let black_height = bar_height - white_height;
+
+    if black_height > 0.0 {
+        let black_rect = Mesh::new_rectangle(
             ctx,
             DrawMode::fill(),
             Rect::new(
@@ -248,8 +238,51 @@ pub fn draw_evaluation_bar(ctx: &mut Context, canvas: &mut Canvas, evaluation: f
             ),
             Color::from_rgba(64, 61, 57, 255),
         )?;
-        canvas.draw(&black_evaluation, DrawParam::default());
+        canvas.draw(&black_rect, DrawParam::default());
     }
+
+    if white_height > 0.0 {
+        let white_rect = Mesh::new_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(
+                bar_x,
+                bar_y + black_height,
+                bar_width,
+                white_height
+            ),
+            Color::from_rgba(240, 217, 181, 255),
+        )?;
+        canvas.draw(&white_rect, DrawParam::default());
+    }
+
+    let border = Mesh::new_rectangle(
+        ctx,
+        DrawMode::stroke(2.0),
+        Rect::new(bar_x, bar_y, bar_width, bar_height),
+        Color::from_rgba(100, 100, 100, 255),
+    )?;
+    canvas.draw(&border, DrawParam::default());
+
+    let middle_line = Mesh::new_rectangle(
+        ctx,
+        DrawMode::fill(),
+        Rect::new(bar_x - 2.0, middle_y - 1.0, bar_width + 4.0, 2.0),
+        Color::from_rgba(0, 0, 0, 255),
+    )?;
+    canvas.draw(&middle_line, DrawParam::default());
+
+    let eval_text = if evaluation.abs() >= 1000.0 {
+        format!("#{}", if evaluation > 0.0 { "+" } else { "-" })
+    } else {
+        format!("{:+.1}", eval_in_pawns)
+    };
+
+    let text = Text::new(TextFragment::from(eval_text)
+        .color(Color::from_rgba(255, 255, 255, 255))
+        .scale(16.0));
+
+    canvas.draw(&text, DrawParam::default().dest([bar_x + bar_width + 5.0, middle_y - 8.0]));
 
     Ok(())
 }

@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Error, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::Duration;
 
@@ -14,10 +15,13 @@ pub struct StockfishEngineInternal {
     reader_thread: Option<thread::JoinHandle<()>>,
     output_buffer: Arc<Mutex<Vec<String>>>,
     running: Arc<Mutex<bool>>,
+    cancel_search: Arc<AtomicBool>,
+    current_best_move: Arc<Mutex<Vec<String>>>,
+    current_evaluation: Arc<Mutex<Option<f32>>>,
 }
 
 impl StockfishEngineInternal {
-    pub fn new(debug_mode: bool) -> Result<Self, std::io::Error> {
+    pub fn new(debug_mode: bool) -> Result<Self, Error> {
         let mut process = Command::new(STOCKFISH_PATH)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -59,6 +63,9 @@ impl StockfishEngineInternal {
             reader_thread: Some(reader_thread),
             output_buffer,
             running,
+            cancel_search: Arc::new(AtomicBool::new(false)),
+            current_best_move: Arc::new(Mutex::new(None)),
+            current_evaluation: Arc::new(Mutex::new(None)),
         };
 
         engine.send_command("uci")?;
@@ -78,7 +85,7 @@ impl StockfishEngineInternal {
         Ok(engine)
     }
 
-    pub fn send_command(&self, command: &str) -> Result<(), std::io::Error> {
+    pub fn send_command(&self, command: &str) -> Result<(), Error> {
         if let Ok(mut stdin) = self.writer.lock() {
             writeln!(stdin, "{}", command)?;
             stdin.flush()?;
@@ -94,7 +101,7 @@ impl StockfishEngineInternal {
         result
     }
 
-    pub fn wait_for_response(&self, response: &str, timeout_ms: u64) -> Result<Vec<String>, std::io::Error> {
+    pub fn wait_for_response(&self, response: &str, timeout_ms: u64) -> Result<Vec<String>, Error> {
         let start = std::time::Instant::now();
         let mut found = false;
 
@@ -117,7 +124,7 @@ impl StockfishEngineInternal {
         }
 
         if !found {
-            return Err(std::io::Error::new(
+            return Err(Error::new(
                 std::io::ErrorKind::TimedOut,
                 format!("Timeout waiting for '{}' response", response),
             ));
@@ -126,11 +133,7 @@ impl StockfishEngineInternal {
         Ok(self.get_output())
     }
 
-    pub fn set_position(&self, position: &str) -> Result<(), std::io::Error> {
-        self.send_command(&format!("position fen {}", position))
-    }
-
-    pub fn find_best_move(&self, depth: Option<u8>, time_ms: Option<u64>) -> Option<Vec<String>> {
+    pub fn find_best_move(&self, depth: Option<u8>, time_ms: Option<u64>, is_white_move: bool) -> Option<BestMoveInfo> {
         let mut go_cmd = String::from("go");
 
         if let Some(d) = depth {
@@ -138,7 +141,7 @@ impl StockfishEngineInternal {
         } else if let Some(t) = time_ms {
             go_cmd.push_str(&format!(" movetime {}", t));
         } else {
-            go_cmd.push_str(" depth 15");
+            go_cmd.push_str(" depth 16");
         }
 
         self.send_command(&go_cmd).unwrap();
@@ -146,34 +149,8 @@ impl StockfishEngineInternal {
         let timeout = time_ms.unwrap_or(30000) + 5000;
         let output = self.wait_for_response("bestmove", timeout).unwrap();
 
-        for line in output.iter().rev() {
-            if line.contains("bestmove") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let best_move = parts[1];
-                    if best_move.contains("(none)") {
-                        return None;
-                    }
-
-                    let from = &best_move[0..2];
-                    let to = &best_move[2..4];
-                    return Some(vec![from.to_string(), to.to_string()]);
-                }
-            }
-        }
-
-        None
-    }
-
-    pub fn set_option(&self, name: &str, value: &str) -> Result<(), std::io::Error> {
-        self.send_command(&format!("setoption name {} value {}", name, value))
-    }
-
-    pub fn get_evaluation_score(&self, depth: u8, is_white_move: bool) -> Result<f32, std::io::Error> {
-        self.get_output();
-        self.send_command(&format!("go depth {}", depth))?;
-        let output = self.wait_for_response("bestmove", 30000)?;
         let mut latest_score: Option<f32> = None;
+        let mut latest_best_move: Option<Vec<String>> = None;
 
         for line in output.iter() {
             if line.contains("score cp ") {
@@ -182,7 +159,7 @@ impl StockfishEngineInternal {
                     let score_parts: Vec<&str> = parts[1].split_whitespace().collect();
                     if !score_parts.is_empty() {
                         if let Ok(score) = score_parts[0].parse::<i32>() {
-                            latest_score = Some(score as f32);
+                            latest_score = if is_white_move { Some(score as f32) } else { Some(-score as f32) };
                         }
                     }
                 }
@@ -203,19 +180,31 @@ impl StockfishEngineInternal {
             }
         }
 
-        if let Some(score) = latest_score {
-            if !is_white_move {
-                println!("black move");
-                return Ok(-score)
+        for line in output.iter().rev() {
+            if line.contains("bestmove") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let best_move = parts[1];
+                    if best_move.contains("(none)") {
+                        latest_best_move = None;
+                    }
+
+                    let from = &best_move[0..2];
+                    let to = &best_move[2..4];
+                    latest_best_move = Some(vec![from.to_string(), to.to_string()]);
+                }
             }
-            println!("white move");
-            Ok(score)
-        } else {
-            Err(Error::new(
-                std::io::ErrorKind::NotFound,
-                "Evaluation not found in engine output",
-            ))
         }
+
+        Some(BestMoveInfo::new(latest_best_move, latest_score))
+    }
+
+    pub fn set_position(&self, position: &str) -> Result<(), Error> {
+        self.send_command(&format!("position fen {}", position))
+    }
+
+    pub fn set_option(&self, name: &str, value: &str) -> Result<(), Error> {
+        self.send_command(&format!("setoption name {} value {}", name, value))
     }
 }
 
@@ -252,3 +241,15 @@ impl StockfishEngine {
         self.internal.lock().unwrap()
     }
 }
+
+pub struct BestMoveInfo {
+    pub best_move: Option<Vec<String>>,
+    pub evaluation_score: Option<f32>
+}
+
+impl BestMoveInfo {
+    fn new(best_move: Option<Vec<String>>, evaluation_score: Option<f32>) -> Self {
+        Self { best_move, evaluation_score }
+    }
+}
+

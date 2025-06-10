@@ -21,7 +21,7 @@ impl FenVisitor {
 
     pub(crate) fn with_target_move(target_move: usize) -> Self {
         let mut visitor = Self::new();
-        visitor.target_move = Some(target_move);
+        visitor.target_move = Some(target_move.try_into().unwrap());
         visitor
     }
 }

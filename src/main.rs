@@ -14,7 +14,7 @@ use ggez::{Context, GameResult, ContextBuilder, event, GameError};
 use ggez::event::{EventHandler, MouseButton};
 use ggez::mint::Point2;
 use shakmaty::Square;
-use crate::engine::StockfishEngine;
+use crate::engine::{BestMoveInfo, StockfishEngine};
 use crate::fen::pgn_to_fen_at_move;
 use crate::pgn::square_to_board_coord;
 
@@ -57,7 +57,7 @@ struct GameState {
     board_flipped: bool,
     game_info: String,
     current_arrow: Option<(Point2<f32>, Point2<f32>)>,
-    best_move_receiver: Option<mpsc::Receiver<Option<Vec<String>>>>,
+    best_move_receiver: Option<mpsc::Receiver<Option<BestMoveInfo>>>,
     finding_best_move: bool,
     evaluation: f32,
     debug_mode: bool,
@@ -65,7 +65,7 @@ struct GameState {
 
 impl GameState {
     fn new(ctx: &mut Context) -> GameResult<GameState> {
-        let debug_mode = false;
+        let debug_mode = true;
         let grid_size = 72.0;
         let board = ChessBoard::new(grid_size);
         let context = ctx;
@@ -161,7 +161,9 @@ impl GameState {
 
             let best_move_option = {
                 let engine = engine_clone.lock();
-                engine.find_best_move(Some(16), None)
+                let is_white_move = fen.split_whitespace().nth(1).unwrap_or("b") == "w";
+                println!("{}", if is_white_move { "white to move" } else { "black to move" });
+                engine.find_best_move(Some(25), None, is_white_move)
             };
 
             tx.send(best_move_option).unwrap();
@@ -202,15 +204,6 @@ impl GameState {
         }
 
         if self.game_player.next_move() {
-            {
-                let engine = self.engine.lock();
-                let fen = pgn_to_fen_at_move(SAMPLE_PGN, self.game_player.current_move).unwrap();
-                let is_white_move = fen.split_whitespace().nth(1).unwrap_or("b") == "w";
-                let evaluation = engine.get_evaluation_score(17, is_white_move).unwrap();
-                self.evaluation = evaluation;
-                println!("eval score: {evaluation}");
-            }
-
             self.finding_best_move = true;
             self.trigger_find_best_move();
         }
@@ -222,15 +215,6 @@ impl GameState {
         }
 
         if self.game_player.previous_move() {
-            {
-                let engine = self.engine.lock();
-                let fen = pgn_to_fen_at_move(SAMPLE_PGN, self.game_player.current_move).unwrap();
-                let is_white_move = fen.split_whitespace().nth(1).unwrap_or("b") == "w";
-                let evaluation = engine.get_evaluation_score(17, is_white_move).unwrap();
-                self.evaluation = evaluation;
-                println!("eval score: {evaluation}");
-            }
-
             self.finding_best_move = true;
             self.trigger_find_best_move();
         }
@@ -241,18 +225,21 @@ impl EventHandler for GameState {
     fn update(&mut self, _: &mut Context) -> GameResult {
         if let Some(ref receiver) = self.best_move_receiver {
             if let Ok(best_move_option) = receiver.try_recv() {
-                if let Some(best_move) = best_move_option {
+                if let Some(best_move_info) = best_move_option {
+                    let best_move = best_move_info.best_move.unwrap();
                     let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
                     let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
                     self.set_arrow_coords(from_coords, to_coords);
+
+                    let evaluation = best_move_info.evaluation_score.unwrap();
+                    println!("eval score: {}", evaluation);
+                    self.evaluation = evaluation;
                 }
 
                 self.best_move_receiver = None;
                 self.finding_best_move = false;
             }
         }
-
-
 
         Ok(())
     }
