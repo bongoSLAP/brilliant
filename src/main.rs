@@ -14,7 +14,7 @@ use ggez::{Context, GameResult, ContextBuilder, event, GameError};
 use ggez::event::{EventHandler, MouseButton};
 use ggez::mint::Point2;
 use shakmaty::Square;
-use crate::engine::{BestMoveInfo, StockfishEngine};
+use crate::engine::{EngineUpdate, StockfishEngine};
 use crate::fen::pgn_to_fen_at_move;
 use crate::pgn::square_to_board_coord;
 
@@ -57,26 +57,29 @@ struct GameState {
     board_flipped: bool,
     game_info: String,
     current_arrow: Option<(Point2<f32>, Point2<f32>)>,
-    best_move_receiver: Option<mpsc::Receiver<Option<BestMoveInfo>>>,
+    engine_update_receiver: Option<mpsc::Receiver<EngineUpdate>>,
     finding_best_move: bool,
     evaluation: f32,
     debug_mode: bool,
+    max_depth: u8,
+    current_depth: u8,
 }
 
 impl GameState {
     fn new(ctx: &mut Context) -> GameResult<GameState> {
-        let debug_mode = true;
+        let debug_mode = false;
         let grid_size = 72.0;
+        let max_depth = 50;
         let board = ChessBoard::new(grid_size);
         let context = ctx;
         let engine = StockfishEngine::new(debug_mode);
         let images = load_images(context)?;
 
-        let prev_button = Button::new(100.0, 800.0, 80.0, 40.0, "Prev");
-        let next_button = Button::new(200.0, 800.0, 80.0, 40.0, "Next");
-        let reset_button = Button::new(300.0, 800.0, 80.0, 40.0, "Start");
-        let end_button = Button::new(400.0, 800.0, 80.0, 40.0, "End");
-        let flip_button = Button::new(500.0, 800.0, 80.0, 40.0, "Flip");
+        let prev_button = Button::new(100.0, 810.0, 80.0, 40.0, "Prev");
+        let next_button = Button::new(200.0, 810.0, 80.0, 40.0, "Next");
+        let reset_button = Button::new(300.0, 810.0, 80.0, 40.0, "Start");
+        let end_button = Button::new(400.0, 810.0, 80.0, 40.0, "End");
+        let flip_button = Button::new(500.0, 810.0, 80.0, 40.0, "Flip");
 
         let game_player = ChessGamePlayer::new(board.clone());
 
@@ -92,10 +95,12 @@ impl GameState {
             board_flipped: false,
             game_info: "No game loaded".to_string(),
             current_arrow: None,
-            best_move_receiver: None,
+            engine_update_receiver: None,
             finding_best_move: false,
             evaluation: 0.0,
             debug_mode,
+            max_depth,
+            current_depth: 0,
         };
 
         state.load_pgn_string(SAMPLE_PGN);
@@ -104,7 +109,6 @@ impl GameState {
 
     pub fn flip_board(&mut self) {
         self.board_flipped = !self.board_flipped;
-        self.trigger_find_best_move();
     }
 
     pub fn load_pgn_string(&mut self, pgn_content: &str) {
@@ -147,26 +151,21 @@ impl GameState {
         let current_move = self.game_player.get_current_move();
         let engine_clone = self.engine.clone();
 
-        let (tx, rx) = mpsc::channel();
-        self.best_move_receiver = Some(rx);
+        let (tx, rx) = mpsc::channel::<EngineUpdate>();
+        self.engine_update_receiver = Some(rx);
 
         let fen = pgn_to_fen_at_move(SAMPLE_PGN, current_move).unwrap();
         println!("Getting best move for FEN: {}", fen);
+        let max_depth = self.max_depth;
         
         thread::spawn(move || {
             {
                 let engine = engine_clone.lock();
                 engine.set_position(&fen).unwrap();
-            }
-
-            let best_move_option = {
-                let engine = engine_clone.lock();
                 let is_white_move = fen.split_whitespace().nth(1).unwrap_or("b") == "w";
                 println!("{}", if is_white_move { "white to move" } else { "black to move" });
-                engine.find_best_move(Some(25), None, is_white_move)
-            };
-
-            tx.send(best_move_option).unwrap();
+                engine.find_best_move(Some(max_depth), None, is_white_move, tx)
+            }
         });
     }
 
@@ -200,7 +199,9 @@ impl GameState {
 
     pub fn next_move(&mut self) {
         if self.finding_best_move {
-            return;
+            self.engine.cancel_search();
+            self.finding_best_move = false;
+            self.engine_update_receiver = None;
         }
 
         if self.game_player.next_move() {
@@ -211,7 +212,9 @@ impl GameState {
 
     pub fn prev_move(&mut self) {
         if self.finding_best_move {
-            return;
+            self.engine.cancel_search();
+            self.finding_best_move = false;
+            self.engine_update_receiver = None;
         }
 
         if self.game_player.previous_move() {
@@ -223,20 +226,40 @@ impl GameState {
 
 impl EventHandler for GameState {
     fn update(&mut self, _: &mut Context) -> GameResult {
-        if let Some(ref receiver) = self.best_move_receiver {
-            if let Ok(best_move_option) = receiver.try_recv() {
-                if let Some(best_move_info) = best_move_option {
-                    let best_move = best_move_info.best_move.unwrap();
-                    let from_coords = square_to_board_coord(Square::from_str(&best_move[0]).unwrap());
-                    let to_coords = square_to_board_coord(Square::from_str(&best_move[1]).unwrap());
-                    self.set_arrow_coords(from_coords, to_coords);
+        let mut updates = Vec::new();
 
-                    let evaluation = best_move_info.evaluation_score.unwrap();
-                    println!("eval score: {}", evaluation);
-                    self.evaluation = evaluation;
+        if let Some(ref receiver) = self.engine_update_receiver {
+            while let Ok(engine_update) = receiver.try_recv() {
+                updates.push(engine_update);
+            }
+        }
+
+        for engine_update in updates {
+            println!("Received engine update: move={:?}, eval={:?}, depth={:?}, final={}",
+                     engine_update.best_move, engine_update.evaluation, engine_update.depth, engine_update.is_final);
+
+            if let Some(best_move) = engine_update.best_move {
+                if best_move.len() >= 2 {
+                    match (Square::from_str(&best_move[0]), Square::from_str(&best_move[1])) {
+                        (Ok(from_square), Ok(to_square)) => {
+                            let from_coords = square_to_board_coord(from_square);
+                            let to_coords = square_to_board_coord(to_square);
+                            self.set_arrow_coords(from_coords, to_coords);
+                        }
+                        _ => println!("Failed to parse squares: {:?}", best_move),
+                    }
                 }
+            }
 
-                self.best_move_receiver = None;
+            if let Some(evaluation) = engine_update.evaluation {
+                self.evaluation = evaluation;
+            }
+
+            if let Some(depth) = engine_update.depth {
+                self.current_depth = depth;
+            }
+
+            if engine_update.is_final {
                 self.finding_best_move = false;
             }
         }
@@ -265,6 +288,7 @@ impl EventHandler for GameState {
             self.current_arrow,
             self.debug_mode,
             self.evaluation,
+            self.current_depth,
         )
     }
 

@@ -123,7 +123,8 @@ pub fn draw_info_text(
     canvas: &mut Canvas,
     game_info: &str,
     current_move: usize,
-    total_moves: usize
+    total_moves: usize,
+    depth: u8,
 ) {
     let info_text = Text::new(TextFragment::from(format!("Game: {}", game_info)));
     canvas.draw(&info_text, DrawParam::default().dest([100.0, 720.0]));
@@ -134,6 +135,9 @@ pub fn draw_info_text(
     let move_text = format!("Turn: {}/{}", current_turn, total_turns);
     let move_info = Text::new(TextFragment::from(move_text));
     canvas.draw(&move_info, DrawParam::default().dest([100.0, 750.0]));
+
+    let depth = Text::new(TextFragment::from(format!("Depth: {}", depth)));
+    canvas.draw(&depth, DrawParam::default().dest([100.0, 780.0]));
 }
 
 pub fn draw_arrow(
@@ -275,7 +279,7 @@ pub fn draw_evaluation_bar(ctx: &mut Context, canvas: &mut Canvas, evaluation: f
     let eval_text = if evaluation.abs() >= 1000.0 {
         format!("#{}", if evaluation > 0.0 { "+" } else { "-" })
     } else {
-        format!("{:+.1}", eval_in_pawns)
+        format!("{:+.2}", eval_in_pawns)
     };
 
     let text = Text::new(TextFragment::from(eval_text)
@@ -299,7 +303,7 @@ pub fn draw_ui(
     current_arrow: Option<(Point2<f32>, Point2<f32>)>,
     debug_mode: bool,
     evaluation: f32,
-
+    current_depth: u8
 ) -> GameResult {
     let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
     let grid_size = board.grid_size;
@@ -377,18 +381,9 @@ pub fn draw_ui(
         draw_button(&mut canvas, ctx, button)?;
     }
 
-    draw_info_text(&mut canvas, game_info, current_move, total_moves);
+    draw_info_text(&mut canvas, game_info, current_move, total_moves, current_depth);
 
     if let Some((from, to)) = current_arrow {
-
-        if debug_mode {
-            let arrow_debug = Text::new(
-                TextFragment::from(format!("Arrow: ({:.1},{:.1}) to ({:.1},{:.1})",
-                                           from.x, from.y, to.x, to.y))
-            );
-            canvas.draw(&arrow_debug, DrawParam::default().dest([100.0, 780.0]));
-        }
-
         draw_arrow(ctx, &mut canvas, from, to)?;
     }
 
